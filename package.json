@@ -2,7 +2,7 @@
   "name": "space-apps",
   "version": "0.1.0",
   "private": true,
-  "homepage": "https://dshonhenry.github.io/space-apps-ui"
+  "homepage": "https://dshonhenry.github.io/space-apps-ui",
   "dependencies": {
     "@emotion/react": "^11.13.3",
     "@emotion/styled": "^11.13.0",
