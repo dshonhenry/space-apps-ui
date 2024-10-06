@@ -15,6 +15,7 @@ import { PlanetCard } from './components/PlanetCard';
 const ORIGIN = new Vector3(0, 0, 0)
 const NORMILIZATION_FACTOR = 0.5
 const CONST_OVERLAY_DIST = 10
+const API = "https://space-apps-andromeda.onrender.com"
 
 
 //Rather avoid the informParent function but don't want to use redux in this code that I'm writing in a weekend
@@ -174,11 +175,11 @@ function App() {
 
 
   useEffect(() => {
-    fetch(`http://localhost:8000/earthStars`).then(res=>res.json()).then(data=>{
+    fetch(`${API}/earthStars`).then(res=>res.json()).then(data=>{
       setStarMap(data)
     })
 
-    fetch("http://localhost:8000/planets").then(res=>res.json()).then(data=>{
+    fetch(`${API}/planets`).then(res=>res.json()).then(data=>{
       setPlanets(data)
     })
   }, [])
@@ -215,7 +216,7 @@ function App() {
     setIsDrawerOpen(false)
     setStarMap([])
     setCurrentPlanet(planet.pl_name)
-    fetch(`http://localhost:8000/starsNear?ra=${planet.ra}&dec=${planet.dec}&dist=${planet.sy_dist}`).then(res=>res.json()).then(data=>{
+    fetch(`${API}/starsNear?ra=${planet.ra}&dec=${planet.dec}&dist=${planet.sy_dist}`).then(res=>res.json()).then(data=>{
       setStarMap(data)
       // setCameraPosition(raDecDistToCartesian(ra, dec, dist))
       setCameraPosition(movePointByFactor(ORIGIN, raDecDistToCartesian(planet.ra, planet.dec,planet.sy_dist), NORMILIZATION_FACTOR))
