@@ -30,4 +30,4 @@ jobs:
       uses: peaceiris/actions-gh-pages@v3
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}  # Access GitHub token for deployment
-        publish_dir: ./build   # Directory to deploy (default output for React build)
+        publish_dir: ./build 
