@@ -1,228 +1,275 @@
-import React, { MouseEventHandler, useEffect, useState, WheelEventHandler } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import React, { FormEventHandler, Fragment, MouseEventHandler, RefAttributes, useEffect, useRef, useState, WheelEventHandler } from 'react';
+import { Canvas, ThreeEvent, useFrame, useThree } from '@react-three/fiber'
 import './App.css';
-import { Camera, CircleGeometry, MeshBasicMaterial, Vector3 } from 'three';
+import { Vector3 } from 'three';
 import { FakeGlowMaterial } from './glowMaterial';
-import { DragControls, Hud, Line, MapControls, OrbitControls, PerspectiveCamera, Plane, PointerLockControls, Text, TrackballControls, Wireframe } from '@react-three/drei';
+import { Center, Hud, Line, PerspectiveCamera, PointerLockControls, Text, Wireframe } from '@react-three/drei';
+import { getRaDecFromCamera, raDecDistToCartesian } from './helpers/RaDecConversion';
+import { Box, Button, Card, CircularProgress, Drawer, FormControl, Input, InputLabel, Modal, OutlinedInput, Stack, TextField, Typography } from '@mui/material';
+import { ConstellationLines } from './components/constellation';
+import { Constellation, ConstLine, Planet, Star } from './types';
+import { movePointByFactor, movePointToDistanceFromPoint, showConstillationLine } from './helpers/MovingPoints';
+import { ConstellationLine } from './components/ConstellationLine';
+import { PlanetCard } from './components/PlanetCard';
 
-const degreesToRads = (d:number) => d * (Math.PI/180)
-const ROTATION_ADJUST = 100
+const ORIGIN = new Vector3(0, 0, 0)
+const NORMILIZATION_FACTOR = 0.5
+const CONST_OVERLAY_DIST = 10
 
-// function eulerToRaDec(camera:Camera) {
-//   const yaw = camera.rotation.y;  
-//   const pitch = camera.rotation.x;
 
-//   const xDir = Math.cos(pitch) * Math.cos(yaw);
-//   const yDir = Math.sin(pitch);
-//   const zDir = Math.cos(pitch) * Math.sin(yaw);
-
- 
-//   const dec = Math.asin(yDir); 
-
-//   const ra = Math.atan2(zDir, xDir);
-
-//   const raDeg = ra * (180 / Math.PI);
-//   const decDeg = dec * (180 / Math.PI);
-
-//   const raHoursTotal = raDeg / 15; // 15 degrees per hour
-//   const raHours = Math.floor(raHoursTotal); // Get the hour part
-//   const raMinutesTotal = (raHoursTotal - raHours) * 60;
-//   const raMinutes = Math.floor(raMinutesTotal); // Get the minutes part
-//   const raSeconds = (raMinutesTotal - raMinutes) * 60; // Get the seconds part
-
-//   // Handle Dec, keeping track of the sign for north (+) or south (-)
-//   const decSign = decDeg >= 0 ? "+" : "-";
-//   const decAbsolute = Math.abs(decDeg);
-//   const decDegrees = Math.floor(decAbsolute);
-//   const decMinutesTotal = (decAbsolute - decDegrees) * 60;
-//   const decMinutes = Math.floor(decMinutesTotal);
-//   const decSeconds = (decMinutesTotal - decMinutes) * 60;
-
-//   // Format Right Ascension as "HHh MMm SSs"
-//   const raString = `${String(raHours).padStart(2, '0')}h ${String(raMinutes).padStart(2, '0')}m ${raSeconds.toFixed(2)}s`;
-
-//   // Format Declination as "+DD° MM′ SS″" or "-DD° MM′ SS″"
-//   const decString = `${decSign}${String(decDegrees).padStart(2, '0')}° ${String(decMinutes).padStart(2, '0')}′ ${decSeconds.toFixed(2)}″`;
-
-//   return {
-//     raString:raDeg.toString(),
-//     decString
-//   };
-// }
-
-// Helper function to format RA in HHh MMm SSs
-function formatRA(raDeg:number) {
-  const raHoursTotal = raDeg / 15; // Convert RA from degrees to hours
-  const raHours = Math.floor(raHoursTotal); // Get the hour part
-  const raMinutesTotal = (raHoursTotal - raHours) * 60; // Get the fractional part for minutes
-  const raMinutes = Math.floor(raMinutesTotal); // Get the minutes part
-  const raSeconds = (raMinutesTotal - raMinutes) * 60; // Get the seconds part
-
-  // Return formatted RA string in HHh MMm SSs
-  return `${String(raHours).padStart(2, '0')}h ${String(raMinutes).padStart(2, '0')}m ${raSeconds.toFixed(2)}s`;
-}
-
-// Helper function to format Dec in ±DD° MM′ SS″
-function formatDec(decDeg:number) {
-  const decSign = decDeg >= 0 ? "+" : "-"; // Determine the sign
-  const decAbsolute = Math.abs(decDeg); // Get absolute value for calculations
-  const decDegrees = Math.floor(decAbsolute); // Get the degree part
-  const decMinutesTotal = (decAbsolute - decDegrees) * 60; // Get the fractional part for minutes
-  const decMinutes = Math.floor(decMinutesTotal); // Get the minutes part
-  const decSeconds = (decMinutesTotal - decMinutes) * 60; // Get the seconds part
-
-  // Return formatted Dec string in ±DD° MM′ SS″
-  return `${decSign}${String(decDegrees).padStart(2, '0')}° ${String(decMinutes).padStart(2, '0')}′ ${decSeconds.toFixed(2)}″`;
-}
-
-// Function to get RA and Dec as formatted strings from the camera's rotation
-function getRaDecFromCamera(camera:Camera) {
-  // Step 1: Get the camera's world direction (a unit vector)
-  const direction = new Vector3();
-  camera.getWorldDirection(direction);  // This gives you {x, y, z} direction
-
-  // Step 2: Calculate Declination (Dec) from the y component
-  const dec = Math.asin(direction.y);   // Dec in radians
-
-  // Step 3: Calculate Right Ascension (RA) from x and z components
-  const ra = Math.atan2(direction.x, direction.z);  // RA in radians
-
-  // Step 4: Convert RA and Dec from radians to degrees
-  const raDeg = ra * (180 / Math.PI); // Convert RA to degrees
-  const decDeg = dec * (180 / Math.PI); // Convert Dec to degrees
-
-  // Step 5: Normalize RA to be in the range [0, 360)
-  const raDegNormalized = (raDeg + 360) % 360;
-
-  // Step 6: Format RA and Dec into standard notation
-  const raString = formatRA(raDegNormalized); // Convert RA to HHh MMm SSs
-  const decString = formatDec(decDeg); // Convert Dec to ±DD° MM′ SS″
-
-  return {
-    rightAscension: raString,
-    declination: decString
-  };
-}
-
-function MyStuff({cameraPosition,  stars}:{cameraPosition:Vector3, stars:Star[]}) {
-  const camera = useThree(state=>state.camera)
+//Rather avoid the informParent function but don't want to use redux in this code that I'm writing in a weekend
+function MyStuff({ currentPlanet, cameraPosition, clearConstMaking, informParent, constellation, saveCons, stars }: { currentPlanet:string, saveCons: boolean, constellation: string, cameraPosition: Vector3, clearConstMaking: boolean, informParent: (e: boolean) => void, stars: Star[] }) {
+  const camera = useThree(state => state.camera)
   const [isLocked, setIsLocked] = useState(false)
-  const [hoveredStar, setHoveredStar] = useState<{name:string}|undefined>(undefined)
+  const [creatingCon, setCreatingCon] = useState(false)
+  const [creatingLine, setCreatingLine] = useState(false)
+  const [lineStart, setLineStart] = useState<Vector3>()
+  const [constellations, setConstellations] = useState<Constellation[]>([])
+  const [inProgCons, setInProgCons] = useState<ConstLine[]>([])
+  const [hoveredStar, setHoveredStar] = useState<{ name: string } | undefined>(undefined)
   const [ra, setRa] = useState("")
   const [dec, setDec] = useState("")
-  useFrame(()=>{
+  const ref = useRef<any>(null)
+  const controlRef = useRef<any>(null)
+
+  useEffect(() => {
+    const unlockOnEnterPress = (e: any) => {
+      if (controlRef.current && controlRef.current.isLocked && e.key === "Enter") 
+        controlRef.current.unlock()        
+    }
+    document.addEventListener("keydown", unlockOnEnterPress)
+    return ()=> {document.removeEventListener("keydown", unlockOnEnterPress)}
+  }, [])
+
+  useEffect(() => {
+    if (saveCons && inProgCons.length > 0 && !constellations.some(con => con.name === constellation)) {
+      setConstellations(current => [...current, { lines: inProgCons, name: constellation }])
+      setInProgCons([])
+      setCreatingCon(false)
+    }
+  }, [saveCons])
+
+  useFrame(() => {
     const res = getRaDecFromCamera(camera)
     setRa(res.rightAscension)
     setDec(res.declination)
-    
+    if (lineStart) {
+      ref.current.rotation.x += 0.01
+      ref.current.rotation.y += 0.01
+    }
+
   })
 
-  useEffect(()=>{
-    camera.position.set(cameraPosition.x, cameraPosition.y, cameraPosition.z)
-    camera.lookAt(cameraPosition.x, cameraPosition.y, cameraPosition.z+1)
-  },[cameraPosition])
+  useEffect(() => {
+    informParent(creatingCon)
+  }, [creatingCon])
 
-  const starHovered = (name:string) => {
-    if(!isLocked) return
-    setHoveredStar({name:name})
+  useEffect(() => {
+    if (!clearConstMaking) return
+    setCreatingLine(false)
+    setLineStart(undefined)
+  }, [clearConstMaking])
+
+  useEffect(() => {
+    if(controlRef.current.isLocked) return
+    camera.position.set(cameraPosition.x, cameraPosition.y, cameraPosition.z)
+    camera.lookAt(cameraPosition.x, cameraPosition.y, cameraPosition.z + 1)    
+  }, [cameraPosition])
+
+  const starHovered = (name: string) => {
+    if (!isLocked) return
+    setHoveredStar({ name: name })
   }
 
   const starUnhovered = () => {
     setHoveredStar(undefined)
   }
- 
+
+  const handleStarClick = (e: ThreeEvent<MouseEvent>) => {
+    if (!creatingCon) setCreatingCon(true)
+    if (!creatingLine) {
+      setLineStart(movePointToDistanceFromPoint(cameraPosition, e.object.position, CONST_OVERLAY_DIST))
+      setCreatingLine(true)
+    }
+    else {
+      setCreatingLine(false)
+      setInProgCons(current => lineStart ? [...current, { start: lineStart, end: movePointToDistanceFromPoint(cameraPosition, e.object.position, CONST_OVERLAY_DIST) }] : current)
+      setLineStart(undefined)
+    }
+  }
 
   return (
     <>
-    {/* <mesh position={ new Vector3(cameraPosition.x, cameraPosition.y, cameraPosition.z + 50)} scale={0.2} onClick={console.log}>
-        <sphereGeometry/>
-        <FakeGlowMaterial glowColor={"white"} glowSharpness={.2}/>
-      </mesh> */}
-    {stars.map(star => (
-      <mesh key={`${star.x}-${star.y} = ${star.z}`} position={ new Vector3(star.x, star.y, star.z)} scale={0.05} onPointerEnter={e=>starHovered(star.name)} onPointerLeave={starUnhovered}>
-        <sphereGeometry/>
-        <FakeGlowMaterial glowColor={"white"} glowSharpness={.2}/>
-      </mesh>
-    ))}
-    <mesh position={[0,0,0]}>
+      {stars.map(star => (
+        <mesh key={`${star.x}-${star.y} = ${star.z}`} position={movePointByFactor(ORIGIN, new Vector3(star.x, star.y, star.z), NORMILIZATION_FACTOR)} scale={0.055} onPointerEnter={e => starHovered(star.name)} onPointerLeave={starUnhovered} onClick={handleStarClick}>
+          <sphereGeometry />
+          <FakeGlowMaterial glowColor={"white"} glowSharpness={.2} />
+        </mesh>
+      ))}
+
+      {lineStart &&
+        <mesh position={lineStart} ref={ref} scale={0.055}>
+          <icosahedronGeometry />
+          <meshBasicMaterial attach="material" color="grey" />
+        </mesh>
+      }
+
+      {constellations?.map((cons) =>
+        <ConstellationLines key={cons.name} cons={cons} cameraPosition={cameraPosition} />
+      )
+      }
+      {
+        inProgCons?.map((line, i) => <Line key={i.toString()+line.start.x.toString()+line.end.x.toString()} points={[line.start, line.end]}/>)
+      }
+
+
+      {/* <mesh position={[0,0,0]}>
       <sphereGeometry/>
       <meshBasicMaterial color={"white"}  opacity={0.1}/>
       <Wireframe/>
-    </mesh>
-    <PointerLockControls camera={camera} onLock={()=>setIsLocked(true)} onUnlock={()=>setIsLocked(false)}/>
-    <Hud>
-      <PerspectiveCamera makeDefault position={[0, 0, 10]} />
-      {hoveredStar && 
-      <>
-        <Line points={[0,0,0,.5,.5,0]}/>
-        <Text position={[.5, .5, 0]} anchorX={"left"} anchorY={"bottom"} scale={0.1}>{hoveredStar.name}</Text>
-        <Line points={[.5,.5,0,.5+(0.055*hoveredStar.name.length),.5,0]}/>
-      </>
-      }
-      <mesh position={[5, -3, 0]}>
-        <Text fontSize={.25} anchorX={"left"}> RA: {ra} </Text>
-      </mesh>
-      <mesh position={[5, -3.5, 0]}>
-        <Text fontSize={.25} anchorX={"left"}> DEC: {dec} </Text>
-      </mesh>
-      <mesh position={[0,0,0]} scale={0.01}>
-        <circleGeometry/>
-        <meshBasicMaterial color={"blue"}/>
-      </mesh>
-    </Hud>
+    </mesh> */}
+
+      <PointerLockControls camera={camera} onLock={() => setIsLocked(true)} onUnlock={() => setIsLocked(false)} ref={controlRef} />
+      <Hud>
+        <PerspectiveCamera makeDefault position={[0, 0, 10]} />
+        {hoveredStar &&
+          <>
+            <Line points={[0, 0, 0, .5, .5, 0]} />
+            <Text position={[.5, .5, 0]} anchorX={"left"} anchorY={"bottom"} scale={0.1}>{hoveredStar.name}</Text>
+            <Line points={[.5, .5, 0, .5 + (0.055 * hoveredStar.name.length), .5, 0]} />
+          </>
+        }
+        <mesh position={[-8.5, 4, 0]}>
+          <Text fontSize={.5} anchorX={"left"}> {currentPlanet} </Text>
+        </mesh>
+        <mesh position={[5, -3, 0]}>
+          <Text fontSize={.25} anchorX={"left"}> RA: {ra} </Text>
+        </mesh>
+        <mesh position={[5, -3.5, 0]}>
+          <Text fontSize={.25} anchorX={"left"}> DEC: {dec} </Text>
+        </mesh>
+        <mesh position={[0, 0, 0]} scale={0.01}>
+          <circleGeometry />
+          <meshBasicMaterial color={"blue"} />
+        </mesh>
+      </Hud>
     </>
   )
 }
 
-type Star = {
-  x:number,
-  y:number,
-  z:number,
-  name:string
-}
+
 
 function App() {
-  const [cameraPosition, setCameraPosition] = useState(new Vector3(0,0,0))
+  const [cameraPosition, setCameraPosition] = useState(ORIGIN)
   const [starMap, setStarMap] = useState<Star[]>([])
+  const [clear, setClear] = useState<boolean>(false)
+  const [showModal, setShowModal] = useState(false)
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false)
+  const [userInCreationMode, setUserInCreationMode] = useState(false)
+  const [consName, setConsName] = useState("")
+  const [saveCons, setSaveCons] = useState(false)
+  const [planets, setPlanets] = useState<Planet[]>([])
+  const [currentPlanet, setCurrentPlanet] = useState<string>("Earth")
+
+
+
+  useEffect(() => {
+    fetch(`http://localhost:8000/earthStars`).then(res=>res.json()).then(data=>{
+      setStarMap(data)
+    })
+
+    fetch("http://localhost:8000/planets").then(res=>res.json()).then(data=>{
+      setPlanets(data)
+    })
+  }, [])
+
+  const handleCanvasEnter = (e: any) => {
+    if (e.key != "Enter" || !userInCreationMode || showModal) return
+    setShowModal(true)
+  }
+
+  useEffect(() => {
+    document.addEventListener("keydown", handleCanvasEnter)
+    return () => { document.removeEventListener("keydown", handleCanvasEnter) }
+  }, [userInCreationMode, showModal])
+
+  const handleCanvasClick: MouseEventHandler = (e) => {
+    if (e.button === 2) setClear(true)
+  }
+  const handleAfterCanvasClick: MouseEventHandler = (e) => {
+    if (e.button === 2) setClear(false)
+  }
+
+  const handleTravelClick: MouseEventHandler<HTMLButtonElement> = (e) => {
+    e.stopPropagation()
+    setIsDrawerOpen(true)
+  }
+
+  const handleConstellationName: FormEventHandler = (e) => {
+    e.preventDefault()
+    setSaveCons(true)
+    setShowModal(false)
+  }
+
+  const handlePlanetCardClick = (planet:Planet) => {
+    setIsDrawerOpen(false)
+    setStarMap([])
+    setCurrentPlanet(planet.pl_name)
+    fetch(`http://localhost:8000/starsNear?ra=${planet.ra}&dec=${planet.dec}&dist=${planet.sy_dist}`).then(res=>res.json()).then(data=>{
+      setStarMap(data)
+      // setCameraPosition(raDecDistToCartesian(ra, dec, dist))
+      setCameraPosition(movePointByFactor(ORIGIN, raDecDistToCartesian(planet.ra, planet.dec,planet.sy_dist), NORMILIZATION_FACTOR))
+    })
+  }
 
   useEffect(()=>{
-    const ra = 294.635917
-    const dec = 46.0664076
-    const dist = 396.3320
-    fetch(`http://localhost:8000/hostStars`).then(res=>res.json()).then(data=>{
-      setStarMap(data)
-      // for(const star of data){
-      //   if(!star.distance_gspphot) continue
-      //   const z = ((star.distance_gspphot) * Math.cos(degreesToRads(star.dec)) * Math.cos(degreesToRads(star.ra)))
-      //   const x = ((star.distance_gspphot) * Math.cos(degreesToRads(star.dec)) * Math.sin(degreesToRads(star.ra)))
-      //   const y = ((star.distance_gspphot) * Math.sin(degreesToRads(star.dec)))
-      //   starMap.push([x,y,z])
-      // }
-      // setPoints(starMap)
-      // const camX = (dist * Math.cos(degreesToRads(dec)) * Math.sin(degreesToRads(ra)))
-      // const camY = (dist * Math.sin(degreesToRads(dec)))
-      // const camZ = (dist * Math.cos(degreesToRads(dec)) * Math.cos(degreesToRads(ra)) )
-      // setCameraPosition(new Vector3(camX, camY , camZ ))
-      setCameraPosition(new Vector3(10,10,10))
-    })
-  },[])
+    if(saveCons) {
+      setTimeout(()=>{
+        setConsName("")
+        setSaveCons(false)
+      },1000)
+    }
+  },[saveCons])
 
-   return (
+  return (
     <div className="App">
       {
         starMap.length <= 0 ?
-        <></> 
-        :
-        <>
-          <div className="ui">
-            <button>Travel</button>
-          </div>
-          <Canvas >    
-            <ambientLight intensity={1} />          
-            <MyStuff cameraPosition={cameraPosition} stars={starMap} />        
-          </Canvas>
-        </>
+          <Box style={{ background: "black", height: "100%", width: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <CircularProgress size={100}/>
+          </Box>
+          :
+          <>
+            <div className="ui">
+              <Button size='large' style={{ zIndex: 10 }} onClick={handleTravelClick}>Travel</Button>
+            </div>
+            <Canvas onMouseDown={handleCanvasClick} onMouseUp={handleAfterCanvasClick} >
+              <ambientLight intensity={1} />
+              <MyStuff currentPlanet={currentPlanet} cameraPosition={cameraPosition} stars={starMap} clearConstMaking={clear} informParent={setUserInCreationMode} constellation={consName} saveCons={saveCons} />
+            </Canvas>
+          </>
       }
+      <Drawer
+        anchor={"bottom"}
+        open={isDrawerOpen}
+        onClose={()=>setIsDrawerOpen(false)}
+        onClick={e=>e.stopPropagation()}
+        PaperProps={{style:{backgroundColor:"transparent"}}}
+      >
+        <Stack direction="row" gap={3} p={5}
+        style={{backgroundColor: "rgba(18,18,18,0.5)", overflowY:"hidden", overflowX:"scroll"}} width={"fit-content"}>
+          {planets.map((planet,i) => <PlanetCard planet={planet} key={i} onClick={handlePlanetCardClick}/>)}
+        </Stack>
+      </Drawer>
+      <Modal style={{ zIndex: 10 }} open={showModal}>
+        {/* <Box style={{position:"absolute", top:"50%", left:"50%", width:"30%", transform: 'translate(-50%, -50%)', backgroundColor:"white"}} onClick={e=>e.stopPropagation()}> */}
+        <Stack gap={4} component={"form"} onClick={e => e.stopPropagation()} sx={{ position: "absolute", top: "50%", left: "50%", width: "30%", transform: 'translate(-50%, -50%)', color: "white", background: "black", border:"1px solid white", p:5 }} onSubmit={handleConstellationName}>
+          <Typography variant='h5'>Name Your Constellation</Typography>
+          <OutlinedInput value={consName} onChange={e => setConsName(e.target.value)} style={{ color: "white", border:"1px white solid" }} />
+          <Button sx={{color:"white", border:"1px white solid", background:"transparent", width:"fit-content" }} type='submit' variant="contained" size="large">Name It!</Button>
+        </Stack>
+        {/* </Box> */}
+      </Modal>
     </div>
   );
 }
